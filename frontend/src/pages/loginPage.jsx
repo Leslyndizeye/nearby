@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, PlusCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -9,56 +10,147 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [pharmacyName, setPharmacyName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState('user');
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [registeredUser, setRegisteredUser] = useState(null);
+  
+  const navigate = useNavigate();
+  const API_URL = 'http://localhost:4000';
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password }),
+      });
       
-      // Demo credentials for testing
-      if (email === 'demo@pharmacy.com' && password === 'password') {
-        // In a real app, you would store the auth token in localStorage
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('user', JSON.stringify({ email, name: 'Demo User' }));
+      const data = await response.json();
+      
+      if (data.success) {
+        localStorage.setItem('auth-token', data.token);
+        localStorage.setItem('user-data', JSON.stringify(data.user));
         
-        // Redirect to dashboard
-        window.location.href = '/dashboard';
+        // Redirect based on role
+        if (data.user.role === 'admin') {
+          navigate('/pharmacy');
+        } else {
+          navigate('/user');
+        }
       } else {
-        setError('Invalid credentials. Please try again.');
+        setError(data.errors || 'Login failed. Please check your credentials.');
       }
-    }, 1500);
+    } catch (error) {
+      console.error('Error during login:', error);
+      setError('Something went wrong. Please try again later.');
+    }
+    
+    setIsLoading(false);
   };
   
-  const handleSignUp = (e) => {
+  const handleSignUp = async (e) => {
     e.preventDefault();
     setError('');
-    setIsLoading(true);
+    setRegistrationSuccess(false);
     
     if (password !== confirmPassword) {
-      setIsLoading(false);
       setError('Passwords do not match.');
       return;
     }
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    if (role === 'admin' && !pharmacyName.trim()) {
+      setError('Pharmacy name is required for pharmacy owners');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      const response = await fetch(`${API_URL}/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username,
+          email,
+          password,
+          role,
+          pharmacyName: role === 'admin' ? pharmacyName : undefined
+        }),
+      });
       
-      // In a real app, you would create a new user account here
-      // For demo, we'll just show a success message and switch to login
-      alert('Account created successfully! Please login with your credentials.');
-      setIsSignUp(false);
-      setEmail('');
-      setPassword('');
-    }, 1500);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.errors || 'Signup failed');
+      }
+      
+      if (data.success) {
+        setRegisteredUser(data.user);
+        setRegistrationSuccess(true);
+      } else {
+        setError(data.errors || 'Signup failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error during signup:', error);
+      setError(error.message || 'Something went wrong. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
   };
+  const handleContinueToDashboard = () => {
+    localStorage.setItem('auth-token', registeredUser.token);
+    localStorage.setItem('user-data', JSON.stringify(registeredUser));
+    if (registeredUser.role === 'admin') {
+      navigate('/pharmacy');
+    } else {
+      navigate('/user');
+    }
+  };
+  {!isSignUp ? (
+    <div className="p-8">
+      {/* Keep existing login form */}
+    </div>
+  ) : registrationSuccess ? (
+    <div className="p-8 text-center">
+      <div className="mb-6">
+        <svg className="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <h2 className="text-2xl font-bold text-gray-800 mb-2">Registration Successful!</h2>
+      <p className="text-gray-600 mb-6">
+        Your {registeredUser.role === 'admin' ? 'Pharmacy Owner' : 'User'} account has been created.
+      </p>
+      <button
+        onClick={handleContinueToDashboard}
+        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+      >
+        Continue to Dashboard
+      </button>
+      <button
+        onClick={() => {
+          setRegistrationSuccess(false);
+          setIsSignUp(false);
+        }}
+        className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
+      >
+        Back to Login
+      </button>
+    </div>
+  ) : (
+    <div className="p-8">
+      {/* Keep existing registration form */}
+    </div>
+  )}
   
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
@@ -66,7 +158,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col justify-center items-center p-4">
-      {/* Logo */}
       <div className="mb-8 flex items-center">
         <div className="bg-blue-600 p-3 rounded-full">
           <PlusCircle size={32} className="text-white" />
@@ -74,9 +165,7 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold ml-3 text-gray-800">Pharmacy Portal</h1>
       </div>
       
-      {/* Card */}
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-        {/* Header Tabs */}
         <div className="flex border-b">
           <button 
             className={`flex-1 py-4 text-center font-medium ${!isSignUp ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
@@ -92,21 +181,14 @@ export default function LoginPage() {
           </button>
         </div>
         
-        {/* Login Form */}
         {!isSignUp ? (
           <div className="p-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Welcome back</h2>
-            {error && (
-              <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">
-                {error}
-              </div>
-            )}
+            {error && <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">{error}</div>}
             
-            <div className="space-y-5">
+            <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
                   <input
@@ -122,12 +204,8 @@ export default function LoginPage() {
               
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Password
-                  </label>
-                  <a href="#" className="text-sm text-blue-600 hover:text-blue-800">
-                    Forgot password?
-                  </a>
+                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <a href="#" className="text-sm text-blue-600 hover:text-blue-800">Forgot password?</a>
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
@@ -157,13 +235,11 @@ export default function LoginPage() {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
-                  Remember me
-                </label>
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">Remember me</label>
               </div>
               
               <button
-                onClick={handleLogin}
+                type="submit"
                 disabled={isLoading}
                 className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
@@ -182,63 +258,65 @@ export default function LoginPage() {
                   </span>
                 )}
               </button>
-            </div>
+            </form>
             
             <div className="mt-8 text-center">
               <p className="text-sm text-gray-600">
                 Don't have an account?{' '}
-                <button
-                  onClick={() => setIsSignUp(true)}
-                  className="text-blue-600 hover:text-blue-800 font-medium"
-                >
+                <button onClick={() => setIsSignUp(true)} className="text-blue-600 hover:text-blue-800 font-medium">
                   Create one now
                 </button>
               </p>
             </div>
           </div>
         ) : (
-          // Registration Form
           <div className="p-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Create your account</h2>
-            {error && (
-              <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">
-                {error}
-              </div>
-            )}
+            {error && <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">{error}</div>}
             
-            <div className="space-y-4">
+            <form onSubmit={handleSignUp} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Your Name
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
                 <input
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
                   placeholder="John Doe"
                   required
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Pharmacy Name
-                </label>
-                <input
-                  type="text"
-                  value={pharmacyName}
-                  onChange={(e) => setPharmacyName(e.target.value)}
-                  className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                  placeholder="Your Pharmacy"
-                  required
-                />
+              <div className="flex space-x-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                    required
+                  >
+                    <option value="user">Regular User</option>
+                    <option value="admin">Pharmacy Owner</option>
+                  </select>
+                </div>
+                {role === 'admin' && (
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Pharmacy Name</label>
+                    <input
+                      type="text"
+                      value={pharmacyName}
+                      onChange={(e) => setPharmacyName(e.target.value)}
+                      className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                      placeholder="Your Pharmacy"
+                      required={role === 'admin'}
+                    />
+                  </div>
+                )}
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 text-gray-400" size={18} />
                   <input
@@ -253,9 +331,7 @@ export default function LoginPage() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Password
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
                   <input
@@ -277,9 +353,7 @@ export default function LoginPage() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Confirm Password
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 text-gray-400" size={18} />
                   <input
@@ -293,9 +367,21 @@ export default function LoginPage() {
                 </div>
               </div>
               
+              <div className="flex items-center mt-4">
+                <input
+                  id="terms"
+                  type="checkbox"
+                  required
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="terms" className="ml-2 block text-sm text-gray-700">
+                  I agree to the terms and conditions
+                </label>
+              </div>
+              
               <div className="pt-2">
                 <button
-                  onClick={handleSignUp}
+                  type="submit"
                   disabled={isLoading}
                   className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
@@ -315,7 +401,7 @@ export default function LoginPage() {
                   )}
                 </button>
               </div>
-            </div>
+            </form>
             
             <div className="mt-8 text-center">
               <p className="text-sm text-gray-600">
@@ -330,13 +416,6 @@ export default function LoginPage() {
             </div>
           </div>
         )}
-      </div>
-      
-      {/* Demo info */}
-      <div className="mt-8 text-center max-w-md">
-        <p className="text-sm text-gray-600">
-          <strong>Demo credentials:</strong> Use email <code className="bg-gray-100 px-1 py-0.5 rounded">demo@pharmacy.com</code> and password <code className="bg-gray-100 px-1 py-0.5 rounded">password</code> to login.
-        </p>
       </div>
     </div>
   );
