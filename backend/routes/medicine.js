@@ -1,28 +1,56 @@
 import express from 'express';
 import Medicine from '../models/medicine.js';
-// import { protect } from '../middleware/authMiddleware.js';  // For pharmacy auth check
+import Pharmacy from '../models/pharmacy.js';
+import protect from '../middleware/authMiddleware.js';  // For pharmacy auth check
 
 const router = express.Router();
 
 // Create Medicine (for pharmacies to add medicines)
-router.post('/',  async (req, res) => {
-  const { name, description, brand, category } = req.body;
+router.post('/', protect, async (req, res) => {
+  const { name, description, price, stock, instructions } = req.body;
+
   try {
-    const newMedicine = new Medicine({ name, description, brand, category });
+    // Get pharmacy ID from logged in user
+    const pharmacy = await Pharmacy.findOne({ userId: req.user.id });
+    if (!pharmacy) {
+      return res.status(404).json({ success: false, message: 'Pharmacy not found' });
+    }
+
+    // Create medicine
+    const newMedicine = new Medicine({
+      name,
+      description,
+      price,
+      stock,
+      instructions,
+      pharmacyId: pharmacy._id
+    });
+
     await newMedicine.save();
-    res.status(201).json(newMedicine);
+
+    res.status(201).json({ success: true, data: newMedicine });
   } catch (err) {
-    res.status(400).json({ message: 'Failed to create medicine', error: err.message });
+    console.error('Error creating medicine:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 
 // Get All Medicines (public for now, could be restricted)
-router.get('/', async (req, res) => {
+router.get('/', protect, async (req, res) => {
   try {
-    const medicines = await Medicine.find();
-    res.json(medicines);
+    // Get pharmacy linked to logged-in user
+    const pharmacy = await Pharmacy.findOne({ userId: req.user.id });
+    if (!pharmacy) {
+      return res.status(404).json({ success: false, message: 'Pharmacy not found' });
+    }
+
+    // Get medicines linked to that pharmacy
+    const medicines = await Medicine.find({ pharmacyId: pharmacy._id });
+
+    res.json({ success: true, data: medicines });
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching medicines', error: err.message });
+    console.error('Error fetching medicines:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 
@@ -40,34 +68,65 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update Medicine Info (for pharmacies)
-router.put('/:id',  async (req, res) => {
-  const { name, description, brand, category } = req.body;
+// Update Medicine
+router.put('/:id', protect, async (req, res) => {
+  const { name, description, price, stock, instructions } = req.body;
+
   try {
-    const updatedMedicine = await Medicine.findByIdAndUpdate(
-      req.params.id,
-      { name, description, brand, category },
-      { new: true }
-    );
-    if (!updatedMedicine) {
-      return res.status(404).json({ message: 'Medicine not found' });
+    // Get pharmacy ID from logged-in user
+    const pharmacy = await Pharmacy.findOne({ userId: req.user.id });
+    if (!pharmacy) {
+      return res.status(404).json({ success: false, message: 'Pharmacy not found' });
     }
-    res.json(updatedMedicine);
+
+    // Find medicine that belongs to this pharmacy
+    const medicine = await Medicine.findOne({ _id: req.params.id, pharmacyId: pharmacy._id });
+    if (!medicine) {
+      return res.status(404).json({ success: false, message: 'Medicine not found' });
+    }
+
+    // Update fields
+    medicine.name = name || medicine.name;
+    medicine.description = description || medicine.description;
+    medicine.price = price !== undefined ? price : medicine.price;
+    medicine.stock = stock !== undefined ? stock : medicine.stock;
+    medicine.instructions = instructions || medicine.instructions;
+
+    await medicine.save();
+
+    res.json({ success: true, data: medicine });
   } catch (err) {
-    res.status(500).json({ message: 'Error updating medicine', error: err.message });
+    console.error('Error updating medicine:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 
+
+
 // Delete Medicine (for pharmacies)
-router.delete('/:id',  async (req, res) => {
+router.delete('/:id', protect, async (req, res) => {
   try {
-    const deletedMedicine = await Medicine.findByIdAndDelete(req.params.id);
-    if (!deletedMedicine) {
-      return res.status(404).json({ message: 'Medicine not found' });
+    const pharmacy = await Pharmacy.findOne({ userId: req.user.id });
+    if (!pharmacy) {
+      return res.status(404).json({ success: false, message: 'Pharmacy not found' });
     }
-    res.json({ message: 'Medicine deleted' });
+
+    // Delete only if the medicine belongs to this pharmacy
+    const deletedMedicine = await Medicine.findOneAndDelete({
+      _id: req.params.id,
+      pharmacyId: pharmacy._id
+    });
+
+    if (!deletedMedicine) {
+      return res.status(404).json({ success: false, message: 'Medicine not found or not yours' });
+    }
+
+    res.json({ success: true, message: 'Medicine deleted successfully' });
   } catch (err) {
-    res.status(500).json({ message: 'Error deleting medicine', error: err.message });
+    console.error('Error deleting medicine:', err);
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
+
 
 export default router;

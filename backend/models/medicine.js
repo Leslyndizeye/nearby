@@ -6,6 +6,8 @@ const medicineSchema = new mongoose.Schema({
   price: { type: String },
   stock: { type: String },
   instructions: { type: String },
+  pharmacyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Pharmacy', required: true }
+
 }, { timestamps: true });
 
 const Medicine = mongoose.model('Medicine', medicineSchema);

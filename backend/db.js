@@ -7,8 +7,6 @@ const dburl = "mongodb://AgriRise:l2wDepUwTUXBmizU@cluster0-shard-00-00.viifw.mo
 const connectDB = async () => {
   try {
     await mongoose.connect(dburl, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
     });
     console.log('🟢 Connected to MongoDB Atlas');
   } catch (err) {
