@@ -35,7 +35,7 @@ router.post('/', protect, async (req, res) => {
   }
 });
 
-// Get All Medicines (public for now, could be restricted)
+// Get All Medicines (for logged in pharmacies)
 router.get('/', protect, async (req, res) => {
   try {
     // Get pharmacy linked to logged-in user
@@ -51,6 +51,17 @@ router.get('/', protect, async (req, res) => {
   } catch (err) {
     console.error('Error fetching medicines:', err);
     res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+});
+
+// GET /medicines
+router.get('/medicines', async (req, res) => {
+  try {
+    const medicines = await Medicine.find(); // No filters, give me everything
+    res.status(200).json({ success: true, data: medicines });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to fetch medicines' });
   }
 });
 

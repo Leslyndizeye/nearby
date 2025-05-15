@@ -3,6 +3,8 @@ import UserDashboard from './pages/userDashboard.jsx';
 import PharmacyDashboard from './pages/pharmacyDashboard.jsx';
 import LoginPage from './pages/loginPage.jsx';
 import OnboardPharmacy from './pages/onboardPharmacy.jsx';
+import MedicinesPage from './pages/medicines.jsx';
+
 
 function App() {
   return (
@@ -10,6 +12,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LoginPage />} />
         <Route path="/user" element={<UserDashboard />} />
+        <Route path="/medicines" element={<MedicinesPage />} />
         <Route path="/pharmacy" element={<PharmacyDashboard />} />
         <Route path="/onboard-pharmacy" element={<OnboardPharmacy />} />
       </Routes>

@@ -48,6 +48,7 @@ export default function LoginPage() {
     
     try {
       const data = await api.post('/auth/login', { email, password });
+      console.log(data.data.user.role)
       
       if (data.data.success) {
         localStorage.setItem('token', data.data.token);
@@ -56,7 +57,7 @@ export default function LoginPage() {
         // Redirect based on role
         if (data.data.user.role === 'pharmacy') {
           navigate('/pharmacy');
-        } else if (data.user.role === 'admin') {
+        } else if (data.data.user.role === 'admin') {
           navigate('/admin');
         } else {
           navigate('/user');

@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Menu, X, User, Clock, Phone, Heart, Settings, LogOut, Loader } from 'lucide-react';
+import { Search, MapPin, Menu, X, User, Pill, Heart, Settings, LogOut, Loader } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 
 export default function PharmacyFinder() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -18,6 +20,29 @@ export default function PharmacyFinder() {
   const [filteredPharmacies, setFilteredPharmacies] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [user, setUser] = useState(null);
+
+const navigate = useNavigate();
+
+// redirect user to login page if not logged in
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      window.location.href = '/';
+      return;
+    }
+    setUser(JSON.parse(localStorage.getItem('user-data')) || localStorage.getItem('user-data'));
+
+  }, []);
+
+
+const handleLogout = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user-data');
+  navigate('/');
+};
+
   
   // Refs for search optimization
   const searchTimeoutRef = useRef(null);
@@ -476,7 +501,16 @@ export default function PharmacyFinder() {
                   onClick={() => setActiveTab('all')}
                 >
                   <MapPin size={20} />
-                  {sidebarOpen && <span className="ml-3">All Pharmacies</span>}
+                  {sidebarOpen && <span className="ml-3">Nearby Pharmacies</span>}
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`flex items-center w-full p-3 rounded-lg ${activeTab === 'medicines' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'} ${sidebarOpen ? '' : 'justify-center'}`}
+                  onClick={() => navigate('/medicines')}
+                >
+                  <Pill size={20} />
+                  {sidebarOpen && <span className="ml-3">All Medecines</span>}
                 </button>
               </li>
               <li>
@@ -498,13 +532,9 @@ export default function PharmacyFinder() {
               </div>
               <ul>
                 <li>
-                  <button className="flex items-center w-full p-3 rounded-lg text-gray-700 hover:bg-gray-100">
-                    <Settings size={20} />
-                    <span className="ml-3">Settings</span>
-                  </button>
-                </li>
-                <li>
-                  <button className="flex items-center w-full p-3 rounded-lg text-gray-700 hover:bg-gray-100">
+                  <button 
+                    onClick={handleLogout}
+                    className="flex items-center w-full p-3 rounded-lg text-gray-700 hover:bg-gray-100">
                     <LogOut size={20} />
                     <span className="ml-3">Logout</span>
                   </button>
@@ -601,7 +631,7 @@ export default function PharmacyFinder() {
           <div className="w-1/3 p-4 overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">
-                {activeTab === 'all' ? 'Nearby Pharmacies' : 'Favorite Pharmacies'}
+                {activeTab === 'all' ? 'Nearby Pharmacies' : activeTab === 'favorites' ? 'Favorites Medicines' : 'Available Medicines'}
               </h2>
               <span className="text-sm text-gray-500">
                 {filteredPharmacies.length} found
