@@ -1,79 +1,330 @@
-import { useState, useEffect } from 'react';
-import { Search, MapPin, Menu, X, User, Clock, Phone, Heart, Settings, LogOut } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, MapPin, Menu, X, User, Clock, Phone, Heart, Settings, LogOut, Loader } from 'lucide-react';
 
-// Mock data for pharmacies
-const pharmaciesData = [
-  {
-    id: 1,
-    name: "MedExpress Pharmacy",
-    address: "123 Health Street",
-    distance: "0.5 miles",
-    rating: 4.8,
-    openUntil: "9:00 PM",
-    phone: "(555) 123-4567"
-  },
-  {
-    id: 2,
-    name: "Wellness Drugs",
-    address: "456 Care Avenue",
-    distance: "1.2 miles",
-    rating: 4.5,
-    openUntil: "10:00 PM",
-    phone: "(555) 987-6543"
-  },
-  {
-    id: 3,
-    name: "City Health Pharmacy",
-    address: "789 Medical Boulevard",
-    distance: "1.8 miles",
-    rating: 4.7,
-    openUntil: "8:00 PM",
-    phone: "(555) 456-7890"
-  },
-  {
-    id: 4,
-    name: "QuickScript Pharmacy",
-    address: "101 Remedy Road",
-    distance: "2.3 miles",
-    rating: 4.3,
-    openUntil: "11:00 PM",
-    phone: "(555) 234-5678"
-  }
-];
-
-// Mock data for user favorites
-const initialFavorites = [1, 3];
-
-export default function PharmacyDashboard() {
+export default function PharmacyFinder() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [pharmacies, setPharmacies] = useState(pharmaciesData);
+  const [pharmacies, setPharmacies] = useState([]);
   const [selectedPharmacy, setSelectedPharmacy] = useState(null);
-  const [favorites, setFavorites] = useState(initialFavorites);
+  const [favorites, setFavorites] = useState([]);
   const [activeTab, setActiveTab] = useState('all');
+  const [userLocation, setUserLocation] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [map, setMap] = useState(null);
+  const [markers, setMarkers] = useState([]);
+  const [distanceFilter, setDistanceFilter] = useState('');
+  const [selectedDistance, setSelectedDistance] = useState(50);
+  const [filteredPharmacies, setFilteredPharmacies] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  
+  // Refs for search optimization
+  const searchTimeoutRef = useRef(null);
+  const searchInputRef = useRef(null);
+  
+  // Distance options for dropdown
+  const distanceOptions = [1, 2, 5, 10, 20, 50];
 
-  // Filter pharmacies based on search term
+  // Get user's location when component mounts
   useEffect(() => {
-    if (searchTerm === '') {
-      setPharmacies(pharmaciesData);
-    } else {
-      const filteredPharmacies = pharmaciesData.filter(pharmacy => 
-        pharmacy.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        pharmacy.address.toLowerCase().includes(searchTerm.toLowerCase())
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserLocation({ lat: latitude, lng: longitude });
+        },
+        (error) => {
+          console.error("Error getting location:", error);
+          // Default location if geolocation fails
+          setUserLocation({ lat: 51.5074, lng: -0.1278 }); // London
+        }
       );
-      setPharmacies(filteredPharmacies);
+    } else {
+      console.error("Geolocation is not supported by this browser.");
+      setUserLocation({ lat: 40.7128, lng: -74.0060 }); // New York
     }
-  }, [searchTerm]);
+  }, []);
 
-  // Filter pharmacies based on active tab
+  // Load Google Maps API - Use your own API key
   useEffect(() => {
-    if (activeTab === 'all') {
-      setPharmacies(pharmaciesData);
-    } else if (activeTab === 'favorites') {
-      const favPharmacies = pharmaciesData.filter(pharmacy => favorites.includes(pharmacy.id));
-      setPharmacies(favPharmacies);
+    if (!window.google && userLocation) {
+      const script = document.createElement("script");
+      // Replace with your own API key (with proper restrictions)
+      script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBwHmGMsxU6BM4JUA4d75Fj0PfOFo3NTNU&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => setMapLoaded(true);
+      document.head.appendChild(script);
+      
+      return () => {
+        if (document.head.contains(script)) {
+          document.head.removeChild(script);
+        }
+      };
+    } else if (window.google) {
+      setMapLoaded(true);
     }
-  }, [activeTab, favorites]);
+  }, [userLocation]);
+
+  // Initialize map and search for pharmacies
+  useEffect(() => {
+    if (mapLoaded && userLocation && !map) {
+      try {
+        const mapElement = document.getElementById("map");
+        if (!mapElement) {
+          console.error("Map element not found");
+          return;
+        }
+        
+        const mapInstance = new window.google.maps.Map(mapElement, {
+          center: userLocation,
+          zoom: 14,
+          styles: [
+            {
+              featureType: "poi",
+              elementType: "labels",
+              stylers: [{ visibility: "off" }]
+            }
+          ]
+        });
+
+        // Add user marker
+        const userMarker = new window.google.maps.Marker({
+          position: userLocation,
+          map: mapInstance,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            scale: 7,
+            fillColor: "#4285F4",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2
+          },
+          title: "Your Location"
+        });
+
+        setMap(mapInstance);
+        
+        // Search for nearby pharmacies
+        searchPharmacies(userLocation, mapInstance, selectedDistance * 1000);
+      } catch (error) {
+        console.error("Error initializing map:", error);
+        setLoading(false);
+      }
+    }
+  }, [mapLoaded, userLocation]);
+
+  // Function to search pharmacies with given radius
+  const searchPharmacies = (location, mapInstance, radius = 50000) => {
+    setLoading(true);
+    
+    // Clear existing markers
+    markers.forEach(marker => marker.setMap(null));
+    setMarkers([]);
+    
+    const service = new window.google.maps.places.PlacesService(mapInstance);
+    const request = {
+      location: location,
+      radius: radius,
+      type: 'pharmacy',
+      keyword: 'pharmacy drugstore'
+    };
+    
+    service.nearbySearch(request, (results, status) => {
+      console.log("API Call Status:", status);
+      console.log("Raw Results:", results);
+      
+      if (status === window.google.maps.places.PlacesServiceStatus.OK) {
+        if (!results || results.length === 0) {
+          console.warn("API returned OK status but no results");
+          setPharmacies([]);
+          setFilteredPharmacies([]);
+        } else {
+          // Process results and get detailed place information including photos
+          const processedPharmacies = [];
+          const newMarkers = [];
+          
+          results.forEach((place, index) => {
+            // Create a basic pharmacy object
+            const distanceInKm = calculateDistance(
+              location.lat, location.lng,
+              place.geometry?.location?.lat() || location.lat,
+              place.geometry?.location?.lng() || location.lng
+            );
+            
+            const pharmacy = {
+              id: place.place_id,
+              name: place.name || "Pharmacy",
+              address: place.vicinity || "Address not available",
+              location: place.geometry?.location?.toJSON() || location,
+              rating: place.rating || 0,
+              distanceValue: distanceInKm, // Store raw distance value for filtering
+              distance: distanceInKm.toFixed(1) + " km",
+              photos: place.photos ? place.photos.map(photo => photo.getUrl({ maxWidth: 400, maxHeight: 400 })) : []
+            };
+            
+            processedPharmacies.push(pharmacy);
+            
+            // Create marker
+            const marker = new window.google.maps.Marker({
+              position: pharmacy.location,
+              map: mapInstance,
+              title: pharmacy.name,
+              pharmacyId: pharmacy.id,
+              animation: window.google.maps.Animation.DROP
+            });
+            
+            // Add click event to marker
+            marker.addListener("click", () => {
+              selectPharmacy(pharmacy);
+            });
+            
+            newMarkers.push(marker);
+          });
+          
+          setPharmacies(processedPharmacies);
+          setFilteredPharmacies(processedPharmacies);
+          setMarkers(newMarkers);
+        }
+      } else {
+        console.error("Places API Error:", {
+          status,
+          message: getPlacesError(status),
+          request
+        });
+      }
+      setLoading(false);
+    });
+  };
+  
+  // Helper function for Places API errors
+  function getPlacesError(status) {
+    const errors = {
+      "ZERO_RESULTS": "No pharmacies found in this area",
+      "OVER_QUERY_LIMIT": "API quota exceeded",
+      "REQUEST_DENIED": "API key invalid or missing required permissions",
+      "INVALID_REQUEST": "Invalid request parameters",
+      "UNKNOWN_ERROR": "Unknown server error"
+    };
+    return errors[status] || `Google Places API error: ${status}`;
+  }
+
+  // Effect to update search when distance dropdown changes
+  useEffect(() => {
+    if (map && userLocation) {
+      searchPharmacies(userLocation, map, selectedDistance * 1000);
+      // Clear the manual distance filter when search radius changes
+      setDistanceFilter('');
+    }
+  }, [selectedDistance]);
+
+  // Real-time search suggestion generation
+  useEffect(() => {
+    if (searchTerm.length > 0 && pharmacies.length > 0) {
+      // Clear previous timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      
+      // Set a small delay to avoid excessive filtering on each keystroke
+      searchTimeoutRef.current = setTimeout(() => {
+        const searchTermLower = searchTerm.toLowerCase();
+        
+        // Get pharmacy suggestions based on search term
+        const newSuggestions = pharmacies
+          .filter(pharmacy => 
+            pharmacy.name.toLowerCase().includes(searchTermLower) ||
+            pharmacy.address.toLowerCase().includes(searchTermLower)
+          )
+          .slice(0, 5); // Limit to top 5 suggestions
+        
+        setSuggestions(newSuggestions);
+        setShowSuggestions(newSuggestions.length > 0);
+        
+        // Also update filtered pharmacies in real-time
+        updateFilteredPharmacies(searchTerm);
+      }, 100); // 100ms delay for smooth typing experience
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      
+      // If search is cleared, run the full filter again
+      if (searchTerm === '') {
+        updateFilteredPharmacies('');
+      }
+    }
+    
+    // Cleanup function to clear timeout
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm, pharmacies]);
+
+  // Function to update filtered pharmacies with all filters applied
+  const updateFilteredPharmacies = (currentSearchTerm) => {
+    if (pharmacies.length > 0) {
+      // First filter by search term
+      let filtered = currentSearchTerm ? 
+        pharmacies.filter(pharmacy => 
+          pharmacy.name.toLowerCase().includes(currentSearchTerm.toLowerCase()) ||
+          pharmacy.address.toLowerCase().includes(currentSearchTerm.toLowerCase())
+        ) : 
+        [...pharmacies];
+      
+      // Then filter by distance if a manual filter is specified
+      if (distanceFilter && distanceFilter !== '') {
+        const maxDistance = parseFloat(distanceFilter);
+        if (!isNaN(maxDistance)) {
+          filtered = filtered.filter(pharmacy => 
+            pharmacy.distanceValue <= maxDistance
+          );
+        }
+      }
+      
+      // Finally filter by favorites if on favorites tab
+      if (activeTab === 'favorites') {
+        filtered = filtered.filter(pharmacy => favorites.includes(pharmacy.id));
+      }
+      
+      // Update filtered pharmacies
+      setFilteredPharmacies(filtered);
+      
+      // Update marker visibility
+      markers.forEach(marker => {
+        const isVisible = filtered.some(p => p.id === marker.pharmacyId);
+        marker.setVisible(isVisible);
+      });
+    }
+  };
+  
+  // Apply filters when activeTab, favorites, or distanceFilter changes
+  useEffect(() => {
+    updateFilteredPharmacies(searchTerm);
+  }, [activeTab, favorites, distanceFilter, pharmacies]);
+
+  // Handle selecting a suggestion
+  const handleSuggestionClick = (pharmacy) => {
+    setSearchTerm(pharmacy.name);
+    setShowSuggestions(false);
+    selectPharmacy(pharmacy);
+  };
+
+  // Click outside handler for suggestions
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchInputRef.current && !searchInputRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Toggle favorite status
   const toggleFavorite = (id) => {
@@ -86,6 +337,75 @@ export default function PharmacyDashboard() {
 
   const selectPharmacy = (pharmacy) => {
     setSelectedPharmacy(pharmacy);
+    if (map && pharmacy.location) {
+      map.panTo(pharmacy.location);
+      map.setZoom(16);
+    }
+  };
+
+  // Helper function to calculate distance between two coordinates in kilometers
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const d = R * c; // Distance in km
+    return d;
+  };
+
+  const deg2rad = (deg) => {
+    return deg * (Math.PI/180);
+  };
+
+  // Handle distance input change with real-time filtering
+  const handleDistanceFilterChange = (e) => {
+    const value = e.target.value;
+    setDistanceFilter(value);
+    
+    // Immediately update filtered pharmacies when distance changes
+    if (pharmacies.length > 0) {
+      const maxDistance = parseFloat(value);
+      if (!isNaN(maxDistance) || value === '') {
+        // Re-run the full filter operation
+        // First filter by search term
+        let filtered = searchTerm ? 
+          pharmacies.filter(pharmacy => 
+            pharmacy.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            pharmacy.address.toLowerCase().includes(searchTerm.toLowerCase())
+          ) : 
+          [...pharmacies];
+        
+        // Then filter by distance if specified
+        if (value !== '') {
+          filtered = filtered.filter(pharmacy => 
+            pharmacy.distanceValue <= maxDistance
+          );
+        }
+        
+        // Apply favorites filter if on favorites tab
+        if (activeTab === 'favorites') {
+          filtered = filtered.filter(pharmacy => favorites.includes(pharmacy.id));
+        }
+        
+        // Update filtered pharmacies
+        setFilteredPharmacies(filtered);
+        
+        // Update marker visibility
+        markers.forEach(marker => {
+          const isVisible = filtered.some(p => p.id === marker.pharmacyId);
+          marker.setVisible(isVisible);
+        });
+      }
+    }
+  };
+
+  // Handle distance dropdown change
+  const handleDistanceDropdownChange = (e) => {
+    setSelectedDistance(parseInt(e.target.value));
   };
 
   // Star rating component
@@ -108,6 +428,18 @@ export default function PharmacyDashboard() {
         ))}
         <span className="ml-1 text-xs text-gray-600">{rating.toFixed(1)}</span>
       </div>
+    );
+  };
+
+  // Highlight matching text in suggestions
+  const highlightMatch = (text, query) => {
+    if (!query) return text;
+    
+    const regex = new RegExp(`(${query})`, 'gi');
+    const parts = text.split(regex);
+    
+    return parts.map((part, index) => 
+      regex.test(part) ? <span key={index} className="font-bold text-blue-600">{part}</span> : part
     );
   };
 
@@ -187,8 +519,8 @@ export default function PharmacyDashboard() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b p-4">
-          <div className="flex justify-between items-center">
-            <div className="relative w-full max-w-xl">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <div className="relative w-full max-w-xl mb-4 md:mb-0" ref={searchInputRef}>
               <div className="absolute inset-y-0 left-0 flex items-center pl-3">
                 <Search className="h-5 w-5 text-gray-400" />
               </div>
@@ -198,9 +530,64 @@ export default function PharmacyDashboard() {
                 className="pl-10 pr-4 py-2 w-full rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onFocus={() => {
+                  if (suggestions.length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
               />
+              
+              {/* Real-time search suggestions */}
+              {showSuggestions && (
+                <div className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg max-h-60 overflow-auto">
+                  {suggestions.map((pharmacy) => (
+                    <div 
+                      key={pharmacy.id}
+                      className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0"
+                      onClick={() => handleSuggestionClick(pharmacy)}
+                    >
+                      <div className="font-medium">{highlightMatch(pharmacy.name, searchTerm)}</div>
+                      <div className="text-sm text-gray-600">{highlightMatch(pharmacy.address, searchTerm)}</div>
+                      <div className="text-xs text-gray-500 mt-1">{pharmacy.distance} • Rating: {pharmacy.rating.toFixed(1)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="flex items-center ml-4">
+            
+            <div className="flex w-full md:w-auto space-x-4 items-center">
+              {/* Distance filter input with real-time results */}
+              <div className="relative w-32">
+                <input
+                  type="number"
+                  placeholder="Max km"
+                  className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={distanceFilter}
+                  onChange={handleDistanceFilterChange}
+                  min="0"
+                  step="0.1"
+                />
+                <span className="absolute right-3 top-2 text-gray-500 text-sm">km</span>
+              </div>
+              
+              {/* Distance dropdown */}
+              <div className="relative w-40">
+                <select
+                  className="w-full appearance-none px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={selectedDistance}
+                  onChange={handleDistanceDropdownChange}
+                >
+                  {distanceOptions.map(option => (
+                    <option key={option} value={option}>{option} km radius</option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+              </div>
+              
               <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
                 JD
               </div>
@@ -210,53 +597,71 @@ export default function PharmacyDashboard() {
         
         {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Pharmacy List */}
+          {/* Pharmacy List with Flip Cards */}
           <div className="w-1/3 p-4 overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">
                 {activeTab === 'all' ? 'Nearby Pharmacies' : 'Favorite Pharmacies'}
               </h2>
-              <span className="text-sm text-gray-500">{pharmacies.length} found</span>
+              <span className="text-sm text-gray-500">
+                {filteredPharmacies.length} found
+              </span>
             </div>
             
-            {pharmacies.length === 0 ? (
+            {loading ? (
+              <div className="flex flex-col items-center justify-center h-64">
+                <Loader className="h-8 w-8 text-blue-500 animate-spin" />
+                <p className="mt-4 text-gray-600">Finding nearby pharmacies...</p>
+              </div>
+            ) : filteredPharmacies.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center">
                 <div className="text-gray-400 mb-2">
                   <Search size={48} />
                 </div>
                 <h3 className="text-lg font-medium text-gray-700">No pharmacies found</h3>
-                <p className="text-sm text-gray-500 mt-1">Try adjusting your search</p>
+                <p className="text-sm text-gray-500 mt-1">Try adjusting your search or location</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {pharmacies.map((pharmacy) => (
+              <div className="cols">
+                {filteredPharmacies.map((pharmacy) => (
                   <div 
                     key={pharmacy.id} 
-                    className={`bg-white rounded-lg shadow p-4 cursor-pointer transition-all hover:shadow-md ${selectedPharmacy?.id === pharmacy.id ? 'ring-2 ring-blue-500' : ''}`}
+                    className="col"
                     onClick={() => selectPharmacy(pharmacy)}
                   >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-medium">{pharmacy.name}</h3>
-                        <p className="text-sm text-gray-600 mt-1">{pharmacy.address}</p>
-                        <StarRating rating={pharmacy.rating} />
-                      </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(pharmacy.id);
+                    <div className="container">
+                      <div 
+                        className="front" 
+                        style={{
+                          backgroundImage: pharmacy.photos && pharmacy.photos.length > 0 
+                            ? `url(${pharmacy.photos[0]})` 
+                            : "url(/api/placeholder/300/300)"
                         }}
-                        className={`p-1 rounded-full ${favorites.includes(pharmacy.id) ? 'text-red-500' : 'text-gray-400'}`}
                       >
-                        <Heart size={18} fill={favorites.includes(pharmacy.id) ? "currentColor" : "none"} />
-                      </button>
-                    </div>
-                    <div className="flex items-center mt-3 text-xs text-gray-500">
-                      <MapPin size={14} className="mr-1" />
-                      <span>{pharmacy.distance}</span>
-                      <span className="mx-2">•</span>
-                      <Clock size={14} className="mr-1" />
-                      <span>Open until {pharmacy.openUntil}</span>
+                        <div className="inner">
+                          <p>{pharmacy.name}</p>
+                          <span>{pharmacy.distance}</span>
+                        </div>
+                      </div>
+                      <div className="back">
+                        <div className="inner">
+                          <p>{pharmacy.address}</p>
+                          <div className="mt-2">
+                            <StarRating rating={pharmacy.rating} />
+                          </div>
+                          <div className="flex justify-center mt-4">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFavorite(pharmacy.id);
+                              }}
+                              className={`p-2 rounded-full ${favorites.includes(pharmacy.id) ? 'text-red-500' : 'text-white'}`}
+                            >
+                              <Heart size={20} fill={favorites.includes(pharmacy.id) ? "currentColor" : "none"} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -266,57 +671,173 @@ export default function PharmacyDashboard() {
           
           {/* Map Area */}
           <div className="w-2/3 bg-gray-200 relative">
-            {/* Google Map would be integrated here in a production environment */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-              <div className="mb-4 text-gray-500">
-                <MapPin size={48} />
-              </div>
-              <h3 className="text-lg font-medium text-gray-700">Google Maps Integration</h3>
-              <p className="text-sm text-gray-500 mt-1 max-w-md">
-                In a production environment, this area would display an interactive Google Map showing pharmacy locations
-              </p>
-              
-              {selectedPharmacy && (
-                <div className="mt-8 bg-white p-4 rounded-lg shadow-lg w-full max-w-md">
-                  <h4 className="font-medium text-lg">{selectedPharmacy.name}</h4>
-                  <p className="text-gray-600 mt-1">{selectedPharmacy.address}</p>
-                  
-                  <div className="mt-4 grid grid-cols-2 gap-4">
-                    <div className="flex items-center">
-                      <Phone className="mr-2 text-blue-600" size={16} />
-                      <span className="text-sm">{selectedPharmacy.phone}</span>
-                    </div>
-                    <div className="flex items-center">
-                      <Clock className="mr-2 text-blue-600" size={16} />
-                      <span className="text-sm">Open until {selectedPharmacy.openUntil}</span>
-                    </div>
-                    <div className="flex items-center">
-                      <MapPin className="mr-2 text-blue-600" size={16} />
-                      <span className="text-sm">{selectedPharmacy.distance} away</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="mr-2 text-blue-600">★</div>
-                      <span className="text-sm">{selectedPharmacy.rating} rating</span>
-                    </div>
+            <div id="map" className="w-full h-full"></div>
+            
+            {selectedPharmacy && (
+              <div className="absolute bottom-4 left-4 right-4 bg-white p-4 rounded-lg shadow-lg">
+                <div className="flex justify-between">
+                  <div>
+                    <h4 className="font-medium text-lg">{selectedPharmacy.name}</h4>
+                    <p className="text-gray-600 mt-1">{selectedPharmacy.address}</p>
                   </div>
-                  
-                  <div className="mt-6 flex space-x-3">
-                    <button className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">
-                      Get Directions
-                    </button>
-                    <button 
-                      className={`flex items-center justify-center w-10 h-10 rounded-md border ${favorites.includes(selectedPharmacy.id) ? 'bg-red-50 border-red-200 text-red-500' : 'border-gray-300 text-gray-400 hover:bg-gray-50'}`}
-                      onClick={() => toggleFavorite(selectedPharmacy.id)}
-                    >
-                      <Heart size={20} fill={favorites.includes(selectedPharmacy.id) ? "currentColor" : "none"} />
-                    </button>
+                  <button 
+                    className={`p-2 rounded-full ${favorites.includes(selectedPharmacy.id) ? 'text-red-500' : 'text-gray-400 hover:text-gray-600'}`}
+                    onClick={() => toggleFavorite(selectedPharmacy.id)}
+                  >
+                    <Heart size={24} fill={favorites.includes(selectedPharmacy.id) ? "currentColor" : "none"} />
+                  </button>
+                </div>
+                
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="flex items-center">
+                    <MapPin className="mr-2 text-blue-600" size={16} />
+                    <span className="text-sm">{selectedPharmacy.distance} away</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="mr-2 text-blue-600">★</div>
+                    <span className="text-sm">{selectedPharmacy.rating.toFixed(1)} rating</span>
                   </div>
                 </div>
-              )}
-            </div>
+                
+                {selectedPharmacy.photos && selectedPharmacy.photos.length > 0 && (
+                  <div className="mt-3 overflow-x-auto">
+                    <div className="flex space-x-2">
+                      {selectedPharmacy.photos.slice(0, 3).map((photo, index) => (
+                        <img 
+                          key={index} 
+                          src={photo} 
+                          alt={`${selectedPharmacy.name} photo ${index + 1}`} 
+                          className="h-16 w-24 object-cover rounded"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="mt-4">
+                  <button 
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+                    onClick={() => {
+                      if (selectedPharmacy.location) {
+                        window.open(`https://www.google.com/maps/dir/?api=1&destination=${selectedPharmacy.location.lat},${selectedPharmacy.location.lng}`, '_blank');
+                      }
+                    }}
+                  >
+                    Get Directions
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+      
+      {/* CSS for Flip Cards */}
+      <style jsx>{`
+        .cols {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          margin: 0 -0.5rem;
+        }
+        
+        .col {
+          width: calc(50% - 1rem);
+          margin: 0.5rem;
+          cursor: pointer;
+          perspective: 1000px;
+          height: 200px;
+        }
+        
+        .container {
+          transform-style: preserve-3d;
+          width: 100%;
+          height: 100%;
+          transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1);
+        }
+        
+        .col:hover .container {
+          transform: rotateY(180deg);
+        }
+        
+        .front, .back {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          backface-visibility: hidden;
+          border-radius: 10px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+        }
+        
+        .front {
+          background-size: cover;
+          background-position: center;
+          color: white;
+          z-index: 2;
+        }
+        
+        .front:after {
+          position: absolute;
+          top: 0;
+          left: 0;
+          z-index: 1;
+          width: 100%;
+          height: 100%;
+          content: '';
+          display: block;
+          opacity: 0.6;
+          background-color: #000;
+          backface-visibility: hidden;
+          border-radius: 10px;
+        }
+        
+        .back {
+          background: linear-gradient(45deg, #cedce7 0%, #596a72 100%);
+          transform: rotateY(180deg);
+          color: white;
+        }
+        
+        .inner {
+          position: relative;
+          z-index: 2;
+          padding: 1rem;
+        }
+        
+        .front .inner p {
+          font-size: 1.5rem;
+          margin-bottom: 0.5rem;
+          position: relative;
+          font-weight: bold;
+        }
+        
+        .front .inner p:after {
+          content: '';
+          width: 4rem;
+          height: 2px;
+          position: absolute;
+          background: #fff;
+          display: block;
+          left: 0;
+          right: 0;
+          margin: 0 auto;
+          bottom: -0.5rem;
+        }
+        
+        .front .inner span {
+          color: rgba(255,255,255,0.8);
+          font-weight: 300;
+        }
+        
+        @media screen and (max-width: 64rem) {
+          .col {
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   );
 }
