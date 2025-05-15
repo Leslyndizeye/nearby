@@ -21,7 +21,8 @@ router.post('/onboardPharmacy', async (req, res) => {
             name: user.name,  // can copy common fields like name from User
             address: req.body.address,
             location: {
-                coordinates: req.body.coordinates  // [lng, lat]
+              type: 'Point', // Don't forget this
+              coordinates: req.body.location.coordinates // ✅ Correct access
             },
             contact: req.body.contact
         });
@@ -33,9 +34,9 @@ router.post('/onboardPharmacy', async (req, res) => {
             message: "Pharmacy onboarding complete",
             pharmacy: {
                 id: pharmacy.id,
-                name: pharmacy.name,
                 address: pharmacy.address,
-                contact: pharmacy.contact
+                contact: pharmacy.contact,
+                location: pharmacy.location
             }
         });
 

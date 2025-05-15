@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, PlusCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api/axios';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -10,15 +11,35 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [username, setUsername] = useState('');
-  const [pharmacyName, setPharmacyName] = useState('');
+  const [name, setName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('user');
-  const [registrationSuccess, setRegistrationSuccess] = useState(false);
-  const [registeredUser, setRegisteredUser] = useState(null);
-  
+
   const navigate = useNavigate();
-  const API_URL = 'http://localhost:4000';
+
+  // redirect user to login page if already logged in
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const userData = JSON.parse(localStorage.getItem('user-data'));
+      if (!userData) {
+        console.log('User data not found in localStorage');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user-data');
+        return;
+      }
+      
+      if (userData.role == 'pharmacy') {
+        navigate('/pharmacy');
+      }
+      else if (userData.role === 'admin') {
+        navigate('/admin');
+      }
+      else {
+        navigate('/user');
+      }
+    }
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -26,28 +47,22 @@ export default function LoginPage() {
     setIsLoading(true);
     
     try {
-      const response = await fetch(`${API_URL}/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password }),
-      });
+      const data = await api.post('/auth/login', { email, password });
       
-      const data = await response.json();
-      
-      if (data.success) {
-        localStorage.setItem('auth-token', data.token);
-        localStorage.setItem('user-data', JSON.stringify(data.user));
+      if (data.data.success) {
+        localStorage.setItem('token', data.data.token);
+        localStorage.setItem('user-data', JSON.stringify(data.data.user));
         
         // Redirect based on role
-        if (data.user.role === 'admin') {
+        if (data.data.user.role === 'pharmacy') {
           navigate('/pharmacy');
+        } else if (data.user.role === 'admin') {
+          navigate('/admin');
         } else {
           navigate('/user');
         }
       } else {
-        setError(data.errors || 'Login failed. Please check your credentials.');
+        setError(data.data.errors || 'Login failed. Please check your credentials.');
       }
     } catch (error) {
       console.error('Error during login:', error);
@@ -61,97 +76,48 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setRegistrationSuccess(false);
+
     
     if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
     }
     
-    if (role === 'admin' && !pharmacyName.trim()) {
-      setError('Pharmacy name is required for pharmacy owners');
-      return;
-    }
-    
     setIsLoading(true);
     
     try {
-      const response = await fetch(`${API_URL}/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username,
-          email,
-          password,
-          role,
-          pharmacyName: role === 'admin' ? pharmacyName : undefined
-        }),
+      
+      const data = await api.post('/auth/signup', {
+        name,
+        email,
+        password,
+        role,
       });
       
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.errors || 'Signup failed');
-      }
-      
-      if (data.success) {
-        setRegisteredUser(data.user);
-        setRegistrationSuccess(true);
+      if (data.data.success) {
+        localStorage.setItem('token', data.data.token);
+        localStorage.setItem('user-data', JSON.stringify(data.data.user));
+        if (data.data.user.role === 'pharmacy') {
+          navigate('/onboard-pharmacy');
+        } else {
+          navigate('/user');
+        }
       } else {
         setError(data.errors || 'Signup failed. Please try again.');
       }
     } catch (error) {
-      console.error('Error during signup:', error);
-      setError(error.message || 'Something went wrong. Please try again later.');
+      if (error.status == 400) {
+        setError("A user with this email already exists");
+      }
+      else {
+        console.error('Error during signup:', error);
+        setError(error.message || 'Something went wrong. Please try again later.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
-  const handleContinueToDashboard = () => {
-    localStorage.setItem('auth-token', registeredUser.token);
-    localStorage.setItem('user-data', JSON.stringify(registeredUser));
-    if (registeredUser.role === 'admin') {
-      navigate('/pharmacy');
-    } else {
-      navigate('/user');
-    }
-  };
-  {!isSignUp ? (
-    <div className="p-8">
-      {/* Keep existing login form */}
-    </div>
-  ) : registrationSuccess ? (
-    <div className="p-8 text-center">
-      <div className="mb-6">
-        <svg className="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      </div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-2">Registration Successful!</h2>
-      <p className="text-gray-600 mb-6">
-        Your {registeredUser.role === 'admin' ? 'Pharmacy Owner' : 'User'} account has been created.
-      </p>
-      <button
-        onClick={handleContinueToDashboard}
-        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-      >
-        Continue to Dashboard
-      </button>
-      <button
-        onClick={() => {
-          setRegistrationSuccess(false);
-          setIsSignUp(false);
-        }}
-        className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
-      >
-        Back to Login
-      </button>
-    </div>
-  ) : (
-    <div className="p-8">
-      {/* Keep existing registration form */}
-    </div>
-  )}
-  
+
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
@@ -275,18 +241,6 @@ export default function LoginPage() {
             {error && <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm">{error}</div>}
             
             <form onSubmit={handleSignUp} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                  placeholder="John Doe"
-                  required
-                />
-              </div>
-              
               <div className="flex space-x-4">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
@@ -297,22 +251,21 @@ export default function LoginPage() {
                     required
                   >
                     <option value="user">Regular User</option>
-                    <option value="admin">Pharmacy Owner</option>
+                    <option value="pharmacy">Pharmacy Owner</option>
                   </select>
                 </div>
-                {role === 'admin' && (
-                  <div className="flex-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Pharmacy Name</label>
-                    <input
-                      type="text"
-                      value={pharmacyName}
-                      onChange={(e) => setPharmacyName(e.target.value)}
-                      className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                      placeholder="Your Pharmacy"
-                      required={role === 'admin'}
-                    />
-                  </div>
-                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="px-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                  placeholder="John Doe"
+                  required
+                />
               </div>
               
               <div>

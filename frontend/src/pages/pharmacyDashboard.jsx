@@ -1,23 +1,47 @@
 import { useState, useEffect } from 'react';
-import { Search, PlusCircle, MapPin, Phone, Mail, Clipboard, X, Edit, Trash2, Eye } from 'lucide-react';
+import { Search, PlusCircle, MapPin, Phone, Mail, Clipboard, X, Edit, LogOut, Trash2, Eye } from 'lucide-react';
+import api from '../api/axios';
 
 // Main App Component
 export default function PharmacyPortal() {
-  const [medicines, setMedicines] = useState(() => {
-    const savedMedicines = localStorage.getItem('medicines');
-    return savedMedicines ? JSON.parse(savedMedicines) : [];
-  });
+  const [medicines, setMedicines] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState({});
   
-  const [pharmacyInfo, setPharmacyInfo] = useState(() => {
-    const savedInfo = localStorage.getItem('pharmacyInfo');
-    return savedInfo ? JSON.parse(savedInfo) : {
-      name: 'My Pharmacy',
-      address: '123 Health Street, Medical District',
-      phone: '555-123-4567',
-      email: 'contact@mypharmacy.com',
-      hours: 'Mon-Fri: 8AM-8PM, Sat-Sun: 10AM-6PM'
-    };
-  });
+  
+  // redirect user to login page if not logged in
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+
+    if (!token) {
+      window.location.href = '/';
+      return;
+    }
+    setUser(JSON.parse(localStorage.getItem('user-data')) || localStorage.getItem('user-data'));
+
+  }, []);
+
+
+
+  // get user's medicine
+  useEffect(() => {
+    setLoading(true);
+    api.get('/medicine')
+      .then((response) => {
+        setMedicines(response.data.data);
+      })
+      .catch((error) => {
+        console.error(error);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+
+  // get pharmacy data from local storage
+  const pharmacy = JSON.parse(localStorage.getItem('pharmacyData'));
+
   
   const [showAddMedicine, setShowAddMedicine] = useState(false);
   const [showEditMedicine, setShowEditMedicine] = useState(false);
@@ -26,54 +50,121 @@ export default function PharmacyPortal() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeView, setActiveView] = useState('grid'); // 'grid' or 'list'
   const [viewMedicine, setViewMedicine] = useState(null);
-  
-  // Save to localStorage whenever data changes
-  useEffect(() => {
-    localStorage.setItem('medicines', JSON.stringify(medicines));
-  }, [medicines]);
-  
-  useEffect(() => {
-    localStorage.setItem('pharmacyInfo', JSON.stringify(pharmacyInfo));
-  }, [pharmacyInfo]);
+
+
+  // handleLogout
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user-data');
+    window.location.href = '/';
+  }
   
   // Filter medicines based on search term
   const filteredMedicines = medicines.filter(med => 
-    med.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    med.description.toLowerCase().includes(searchTerm.toLowerCase())
+    med.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    med.description?.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
   // Add new medicine
-  const handleAddMedicine = (medicine) => {
-    const newMed = {
-      ...medicine,
-      id: Date.now().toString(),
-      dateAdded: new Date().toISOString()
-    };
-    setMedicines([...medicines, newMed]);
+  const handleAddMedicine = async (medicine) => {
     setShowAddMedicine(false);
+
+    setLoading(true);
+    try {
+      await api.post("/medicine", medicine)
+        .then((response) => {
+          setMedicines([...medicines, response.data.data]);
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  
+    
   };
   
   // Edit medicine
-  const handleEditMedicine = (medicine) => {
-    setMedicines(medicines.map(med => 
-      med.id === medicine.id ? medicine : med
-    ));
+  const handleEditMedicine = async (medicine) => {
     setShowEditMedicine(false);
     setCurrentMedicine(null);
+
+    setLoading(true);
+    try {
+      await api.put(`/medicine/${medicine._id}`, medicine)
+        .then((response) => {
+          setMedicines((prevMeds) =>
+            prevMeds.map((med) =>
+              med._id === response.data.data._id ? response.data.data : med
+            )
+          );
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+    
   };
   
   // Delete medicine
-  const handleDeleteMedicine = (id) => {
+  const handleDeleteMedicine = async (id) => {
+    setLoading(true);
     if (window.confirm('Are you sure you want to delete this medicine?')) {
-      setMedicines(medicines.filter(med => med.id !== id));
+      try {
+        await api.delete(`/medicine/${id}`)
+          .then((response) => {
+            setMedicines((prevMeds) => prevMeds.filter((med) => med._id !== id));
+          })
+          .catch((error) => {
+            console.error(error);
+          });
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
     }
   };
   
   // Update pharmacy info
   const handleUpdateProfile = (info) => {
-    setPharmacyInfo(info);
-    setShowEditProfile(false);
+
+    const submitData = {
+        name: info.name,
+        address: info.address,
+        location: {
+            type: "Point",  
+            coordinates: [
+                parseFloat(info.longitude),  // make sure they're numbers
+                parseFloat(info.latitude)
+            ]
+        },
+        contact: info.phone 
+    };
+
+
+    try {
+      api.post("/pharmacy/profile", submitData)
+        .then((response) => {
+          console.log(response.data);
+          localStorage.setItem('pharmacyData', JSON.stringify(response.data.pharmacy));  // Storing pharmacy data in localStorage
+          window.location.reload();
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    } catch (error) {
+      console.error(error);
+    }
   };
+
   
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -84,7 +175,7 @@ export default function PharmacyPortal() {
             <div className="bg-white text-blue-600 p-2 rounded-full mr-3">
               <PlusCircle size={24} />
             </div>
-            <h1 className="text-2xl font-bold">{pharmacyInfo.name}</h1>
+            <h1 className="text-2xl font-bold">{user.name}</h1>
           </div>
           
           <div className="flex items-center space-x-2">
@@ -94,6 +185,13 @@ export default function PharmacyPortal() {
             >
               <Edit size={16} className="mr-1" />
               Edit Profile
+            </button>
+
+            <button
+              onClick={() => handleLogout(true)}
+              className="bg-blue-800 hover:bg-gray-800 text-white p-3 ml-4 rounded-full transition-colors flex items-center justify-center cursor-pointer"
+            >
+              <LogOut size={16} />
             </button>
           </div>
         </div>
@@ -105,19 +203,15 @@ export default function PharmacyPortal() {
           <div className="flex flex-wrap justify-between items-center">
             <div className="flex items-center mb-2 md:mb-0">
               <MapPin className="text-blue-600 mr-2" size={18} />
-              <span>{pharmacyInfo.address}</span>
+              <span>{pharmacy.address}</span>
             </div>
             <div className="flex items-center mb-2 md:mb-0">
               <Phone className="text-blue-600 mr-2" size={18} />
-              <span>{pharmacyInfo.phone}</span>
+              <span>{pharmacy.contact}</span>
             </div>
             <div className="flex items-center">
               <Mail className="text-blue-600 mr-2" size={18} />
-              <span>{pharmacyInfo.email}</span>
-            </div>
-            <div className="flex items-center">
-              <Clipboard className="text-blue-600 mr-2" size={18} />
-              <span>{pharmacyInfo.hours}</span>
+              <span>{user.email}</span>
             </div>
           </div>
         </div>
@@ -171,7 +265,12 @@ export default function PharmacyPortal() {
         </div>
         
         {/* Medicines Display */}
-        {filteredMedicines.length === 0 ? (
+        {loading ? (
+            <div className="text-center py-12">
+              <div className="loader border-4 border-blue-500 border-t-transparent rounded-full w-12 h-12 animate-spin mx-auto mb-4"></div>
+              <h3 className="text-lg font-medium text-gray-700">Loading medicines...</h3>
+            </div>
+        ) : filteredMedicines.length === 0 ? (
           <div className="text-center py-12">
             <div className="bg-gray-100 inline-block p-4 rounded-full mb-4">
               <Clipboard size={32} className="text-gray-400" />
@@ -222,7 +321,7 @@ export default function PharmacyPortal() {
                         <Edit size={18} />
                       </button>
                       <button
-                        onClick={() => handleDeleteMedicine(medicine.id)}
+                        onClick={() => handleDeleteMedicine(medicine._id)}
                         className="p-1 text-gray-500 hover:text-red-600"
                       >
                         <Trash2 size={18} />
@@ -327,7 +426,7 @@ export default function PharmacyPortal() {
       
       {/* View Medicine Modal */}
       {viewMedicine && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-90 overflow-y-auto">
             <div className="flex justify-between items-center p-4 border-b">
               <h2 className="text-xl font-semibold">Medicine Details</h2>
@@ -399,7 +498,7 @@ export default function PharmacyPortal() {
       
       {/* Edit Profile Modal */}
       {showEditProfile && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
             <div className="flex justify-between items-center p-4 border-b">
               <h2 className="text-xl font-semibold">Edit Pharmacy Profile</h2>
@@ -427,7 +526,7 @@ export default function PharmacyPortal() {
                 <input
                   name="name"
                   type="text"
-                  defaultValue={pharmacyInfo.name}
+                  defaultValue={user.name}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -440,7 +539,7 @@ export default function PharmacyPortal() {
                 <input
                   name="address"
                   type="text"
-                  defaultValue={pharmacyInfo.address}
+                  defaultValue={pharmacy.address}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -453,7 +552,7 @@ export default function PharmacyPortal() {
                 <input
                   name="phone"
                   type="text"
-                  defaultValue={pharmacyInfo.phone}
+                  defaultValue={pharmacy.contact}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -466,7 +565,7 @@ export default function PharmacyPortal() {
                 <input
                   name="email"
                   type="email"
-                  defaultValue={pharmacyInfo.email}
+                  defaultValue={user.email}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -474,16 +573,30 @@ export default function PharmacyPortal() {
               
               <div className="mb-6">
                 <label className="block text-gray-700 text-sm font-medium mb-2">
-                  Business Hours
+                  Latitude
                 </label>
                 <input
-                  name="hours"
+                  name="latitude"
                   type="text"
-                  defaultValue={pharmacyInfo.hours}
+                  defaultValue={pharmacy.location.coordinates[1]} // Index 1 for latitude
                   className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
+
+              <div className="mb-6">
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Longitude
+                </label>
+                <input
+                  name="longitude"
+                  type="text"
+                  defaultValue={pharmacy.location.coordinates[0]} // Index 0 for longitude
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
               
               <div className="flex justify-end space-x-3">
                 <button
@@ -513,7 +626,7 @@ function MedicineForm({ medicine, onSubmit, onCancel, title }) {
   const isEditing = !!medicine;
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
         <div className="flex justify-between items-center p-4 border-b">
           <h2 className="text-xl font-semibold">{title}</h2>
@@ -603,8 +716,8 @@ function MedicineForm({ medicine, onSubmit, onCancel, title }) {
               Usage Instructions
             </label>
             <textarea
-              name="usage"
-              defaultValue={medicine?.usage || ''}
+              name="instructions"
+              defaultValue={medicine?.instructions || ''}
               className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
             ></textarea>
           </div>

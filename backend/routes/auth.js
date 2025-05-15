@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/user.js';
+import Pharmacy from '../models/pharmacy.js'
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 // import { protect } from '../middleware/authMiddleware.js'; 
@@ -35,22 +36,6 @@ router.post('/signup', async (req, res) => {
         });
 
         await user.save();
-
-         // 🩸 If role is pharmacy, create Pharmacy document
-        if (user.role === 'pharmacy') {
-            const pharmacy = new Pharmacy({
-                name: user.name,
-                email: user.email,
-                password: user.password,  // hashed already by pre-save hook
-                address: req.body.address,  // make sure this is sent in req.body
-                location: {
-                    coordinates: req.body.coordinates  // [lng, lat]
-                },
-                contact: req.body.contact
-            });
-
-            await pharmacy.save();
-        }
 
         // Create JWT token
         const data = {

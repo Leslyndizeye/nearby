@@ -68,7 +68,6 @@ router.get('/:id', async (req, res) => {
 });
 
 // Update Medicine Info (for pharmacies)
-// Update Medicine
 router.put('/:id', protect, async (req, res) => {
   const { name, description, price, stock, instructions } = req.body;
 
