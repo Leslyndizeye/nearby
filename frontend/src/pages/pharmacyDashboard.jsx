@@ -56,6 +56,7 @@ export default function PharmacyPortal() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user-data');
+    localStorage.removeItem('pharmacyData');
     window.location.href = '/';
   }
   

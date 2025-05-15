@@ -75,7 +75,6 @@ export default function LoginPage() {
   const handleSignUp = async (e) => {
     e.preventDefault();
     setError('');
-    setRegistrationSuccess(false);
 
     
     if (password !== confirmPassword) {
