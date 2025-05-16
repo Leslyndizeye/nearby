@@ -41,6 +41,17 @@ export default function LoginPage() {
     }
   }, []);
 
+  // get user's pharmacy data
+  const getPharmacyData = async () => {
+    try {
+      const response = await api.get('/pharmacy/profile');
+      localStorage.setItem('pharmacyData', JSON.stringify(response.data));  // Storing pharmacy data in localStorage
+    } catch (error) {
+      console.error('Error fetching pharmacy data:', error);
+      return null;
+    }
+  }
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
@@ -48,14 +59,15 @@ export default function LoginPage() {
     
     try {
       const data = await api.post('/auth/login', { email, password });
-      console.log(data.data.user.role)
       
       if (data.data.success) {
         localStorage.setItem('token', data.data.token);
         localStorage.setItem('user-data', JSON.stringify(data.data.user));
+
         
         // Redirect based on role
         if (data.data.user.role === 'pharmacy') {
+          await getPharmacyData();
           navigate('/pharmacy');
         } else if (data.data.user.role === 'admin') {
           navigate('/admin');
